@@ -37,8 +37,8 @@ function login($username, $password) {
     
     $user = $db->fetch("SELECT id, username, password_hash, role FROM users WHERE username = ? OR email = ?", 
                        [$username, $username]);
-    
-    if ($user && password_verify($password, $user['password_hash'])) {
+    print($user['password_hash']);
+    if ($user && is_array($user) && password_verify($password, $user['password_hash'])) {
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['username'] = $user['username'];
         $_SESSION['role'] = $user['role'];
@@ -68,7 +68,8 @@ function register($username, $email, $password, $role = 'user') {
     
     // Check if user already exists
     $existing = $db->fetch("SELECT id FROM users WHERE username = ? OR email = ?", [$username, $email]);
-    if ($existing) {
+    // Debugging output removed; ensure $existing is checked properly
+    if ($existing && is_array($existing)) {
         return false;
     }
     

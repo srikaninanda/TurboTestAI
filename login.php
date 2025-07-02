@@ -17,6 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($username) || empty($password)) {
         $error = 'Please fill in all fields.';
     } else {
+        // Remove debug print statements in production
         if (login($username, $password)) {
             header('Location: index.php');
             exit();

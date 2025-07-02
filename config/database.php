@@ -6,35 +6,40 @@ class Database {
     private function __construct() {
         try {
             // Get database configuration from environment variables
-            $host = $_ENV['PGHOST'] ?? getenv('PGHOST') ?? 'localhost';
-            $port = $_ENV['PGPORT'] ?? getenv('PGPORT') ?? '5432';
-            $dbname = $_ENV['PGDATABASE'] ?? getenv('PGDATABASE') ?? 'test_management';
-            $username = $_ENV['PGUSER'] ?? getenv('PGUSER') ?? 'postgres';
-            $password = $_ENV['PGPASSWORD'] ?? getenv('PGPASSWORD') ?? '';
-            
+            $host = '127.0.0.1'; //$_ENV['MYSQL_HOST'] ?? getenv('MYSQL_HOST') ?? 'localhost';
+            $port = '3306'; //$_ENV['MYSQL_PORT'] ?? getenv('MYSQL_PORT') ?? '3306';
+            $dbname = 'turbotest'; //$_ENV['MYSQL_DATABASE'] ?? getenv('MYSQL_DATABASE') ?? 'turbotest';
+            $username = 'root'; //$_ENV['MYSQL_USER'] ?? getenv('MYSQL_USER') ?? 'root';
+            $password = 'root'; //$_ENV['MYSQL_PASSWORD'] ?? getenv('MYSQL_PASSWORD') ?? 'root';
+
             // Alternative: Use DATABASE_URL if available
             $database_url = $_ENV['DATABASE_URL'] ?? getenv('DATABASE_URL');
-            
+
             if ($database_url) {
-                $url = parse_url($database_url);
-                $host = $url['host'];
-                $port = $url['port'] ?? 5432;
-                $dbname = ltrim($url['path'], '/');
-                $username = $url['user'];
-                $password = $url['pass'] ?? '';
-            }
-            
-            $dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
-            
+                        $url = parse_url($database_url);
+                        $host = 'localhost';//$url['host'] ?? 'localhost';
+                        $port = '3306';$url['port'] ?? '3306';
+                        $dbname = 'turbotest';//isset($url['path']) ? ltrim($url['path'], '/') : 'turbotest';
+                        $username = 'root'; //$url['user'] ?? 'root';
+                        $password = 'root'; //$url['pass'] ?? 'root';
+                        }
+
+            $dsn = "mysql:host=$host;port=$port;dbname=$dbname;charset=utf8mb4";
+
             $this->connection = new PDO($dsn, $username, $password, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES => false,
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
             ]);
-            
+            //$this->connection  = mysqli_connect($host, $username, $password,$dbname,$port);
+
+
+
         } catch (PDOException $e) {
             error_log("Database connection failed: " . $e->getMessage());
-            throw new Exception("Database connection failed. Please check your configuration.");
+            error_log("DSN used: " . $dsn);
+            error_log("Username: " . $username);
+            throw new Exception("Database connection failed: " . $e->getMessage());
         }
     }
     
@@ -50,34 +55,75 @@ class Database {
     }
     
     public function query($sql, $params = []) {
-        try {
-            $stmt = $this->connection->prepare($sql);
-            $stmt->execute($params);
-            return $stmt;
-        } catch (PDOException $e) {
-            error_log("Database query failed: " . $e->getMessage());
-            error_log("SQL: " . $sql);
-            error_log("Params: " . print_r($params, true));
-            throw new Exception("Database query failed: " . $e->getMessage());
+    // Use mysqli for queries
+    $stmt = $this->connection->prepare($sql);
+    if ($stmt === false) {
+        error_log("Database query preparation failed: " . implode(" ", $this->connection->errorInfo()));
+        throw new Exception("Database query preparation failed: " . implode(" ", $this->connection->errorInfo()));
+    }
+
+    if (!empty($params)) {
+        if (!$stmt->execute($params)) {
+            error_log("Database query execution failed: " . implode(" ", $stmt->errorInfo()));
+            throw new Exception("Database query execution failed: " . implode(" ", $stmt->errorInfo()));
         }
+    } else {
+        if (!$stmt->execute()) {
+            error_log("Database query execution failed: " . implode(" ", $stmt->errorInfo()));
+            throw new Exception("Database query execution failed: " . implode(" ", $stmt->errorInfo()));
+        }
+    }
+
+    return $stmt;
+    if ($stmt === false) {
+        error_log("Database query preparation failed: " . mysqli_error($this->connection));
+        throw new Exception("Database query preparation failed: " . mysqli_error($this->connection));
+    }
+
+    if (!empty($params)) {
+        $types = str_repeat('s', count($params)); // Assuming all parameters are strings for simplicity
+        mysqli_stmt_bind_param($stmt, $types, ...$params);
+    }
+
+    if (!mysqli_stmt_execute($stmt)) {
+        error_log("Database query execution failed: " . mysqli_stmt_error($stmt));
+        throw new Exception("Database query execution failed: " . mysqli_stmt_error($stmt));
+    }
+
+    return $stmt;
     }
     
     public function fetch($sql, $params = []) {
-        return $this->query($sql, $params)->fetch();
+    $stmt = $this->query($sql, $params);
+    $result = $stmt->fetch();
+    if ($result === false) {
+        error_log("Failed to get result set: " . mysqli_stmt_error($stmt));
+        return false;
+    }
+    $row = $result;
+    return $row;
     }
     
     public function fetchAll($sql, $params = []) {
-        return $this->query($sql, $params)->fetchAll();
+    $stmt = $this->query($sql, $params);
+    $rows = $stmt->fetchAll();
+    return $rows;
     }
     
     public function insert($table, $data) {
-        $columns = implode(',', array_keys($data));
-        $placeholders = ':' . implode(', :', array_keys($data));
-        $sql = "INSERT INTO $table ($columns) VALUES ($placeholders) RETURNING id";
-        
-        $stmt = $this->query($sql, $data);
-        $result = $stmt->fetch();
-        return $result['id'];
+    $columns = implode(',', array_keys($data));
+    $placeholders = ':' . implode(', :', array_keys($data));
+    $sql = "INSERT INTO $table ($columns) VALUES ($placeholders)";
+    $stmt = $this->connection->prepare($sql);
+    if ($stmt === false) {
+        error_log("Insert statement preparation failed: " . implode(" ", $this->connection->errorInfo()));
+        throw new Exception("Insert statement preparation failed: " . implode(" ", $this->connection->errorInfo()));
+    }
+    if (!$stmt->execute($data)) {
+        error_log("Insert statement execution failed: " . implode(" ", $stmt->errorInfo()));
+        throw new Exception("Insert statement execution failed: " . implode(" ", $stmt->errorInfo()));
+    }
+    return $this->connection->lastInsertId();
     }
     
     public function update($table, $data, $where, $whereParams = []) {
@@ -88,14 +134,36 @@ class Database {
         $setClause = implode(', ', $set);
         
         $sql = "UPDATE $table SET $setClause WHERE $where";
-        $params = array_merge($data, $whereParams);
-        
-        return $this->query($sql, $params);
+    // Construct parameters for mysqli_stmt_bind_param
+    $params = array_values($data);
+    $whereValues = array_values($whereParams);
+    $params = array_merge($params, $whereValues);
+
+    $types = str_repeat('s', count($data)) . str_repeat('s', count($whereValues));
+
+    $stmt = mysqli_prepare($this->connection, $sql);
+    if ($stmt === false) {
+        error_log("Update statement preparation failed: " . mysqli_error($this->connection));
+        throw new Exception("Update statement preparation failed: " . mysqli_error($this->connection));
+    }
+
+    mysqli_stmt_bind_param($stmt, $types, ...$params);
+
+    if (!mysqli_stmt_execute($stmt)) {
+        error_log("Update statement execution failed: " . mysqli_stmt_error($stmt));
+        throw new Exception("Update statement execution failed: " . mysqli_stmt_error($stmt));
+    }
+    return mysqli_stmt_affected_rows($stmt);
     }
     
     public function delete($table, $where, $params = []) {
         $sql = "DELETE FROM $table WHERE $where";
-        return $this->query($sql, $params);
+    $stmt = mysqli_prepare($this->connection, $sql);
+    if ($stmt === false) {
+        error_log("Delete statement preparation failed: " . mysqli_error($this->connection));
+        throw new Exception("Delete statement preparation failed: " . mysqli_error($this->connection));
+    }
+    return $this->query($sql, $params); // Re-using query method, which now handles mysqli
     }
 }
 
